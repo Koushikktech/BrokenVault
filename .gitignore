@@ -1,0 +1,13 @@
+/target
+vault*
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+journal.json
+sample_*
+restore_*
+*.zip
+.agents/
+skills-lock.json
+BrokenVault_Winning_Playbook.md
