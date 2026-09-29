@@ -51,11 +51,12 @@ where
 
         let mut current = String::new();
         let parts: Vec<&str> = path.split('/').collect();
-        for i in 0..parts.len().saturating_sub(1) {
+        let parent_count = parts.len().saturating_sub(1);
+        for part in parts.iter().take(parent_count) {
             if !current.is_empty() {
                 current.push('/');
             }
-            current.push_str(parts[i]);
+            current.push_str(part);
             dir_prefixes.insert(current.clone());
         }
     }
