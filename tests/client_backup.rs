@@ -49,6 +49,25 @@ fn test_devtools_diff_and_mutate() {
 }
 
 #[test]
+fn test_diff_checks_empty_directory_mtime_with_one_second_tolerance() {
+    let tmp = tempdir().unwrap();
+    let a = tmp.path().join("a");
+    let b = tmp.path().join("b");
+    std::fs::create_dir(&a).unwrap();
+    std::fs::create_dir(&b).unwrap();
+    std::fs::create_dir(a.join("empty")).unwrap();
+    std::fs::create_dir(b.join("empty")).unwrap();
+    let base = filetime::FileTime::from_unix_time(1_700_000_000, 0);
+    let within = filetime::FileTime::from_unix_time(1_700_000_001, 0);
+    let outside = filetime::FileTime::from_unix_time(1_700_000_001, 1);
+    filetime::set_file_mtime(a.join("empty"), base).unwrap();
+    filetime::set_file_mtime(b.join("empty"), within).unwrap();
+    assert!(diff_directories(&a, &b).unwrap());
+    filetime::set_file_mtime(b.join("empty"), outside).unwrap();
+    assert!(!diff_directories(&a, &b).unwrap());
+}
+
+#[test]
 fn test_journal_roundtrip() {
     let tmp = tempdir().unwrap();
     let state_dir = tmp.path().join("state");

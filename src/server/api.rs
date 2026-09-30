@@ -78,12 +78,13 @@ async fn create_or_resume_upload(
         )
     })?;
 
-    let manifest_id = manifest.manifest_id().map_err(|e| {
+    let canonical_bytes = manifest.canonical_bytes().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiError::new("HASH_ERROR", e.to_string(), None)),
         )
     })?;
+    let manifest_id = sha256_hex(&canonical_bytes);
 
     let mut chunk_map = HashMap::new();
     for entry in &manifest.entries {
@@ -109,12 +110,13 @@ async fn create_or_resume_upload(
             )
         })?;
 
-        db.store_manifest(&manifest_id, &body).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("DB_ERROR", e.to_string(), None)),
-            )
-        })?;
+        db.store_manifest(&manifest_id, &canonical_bytes)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiError::new("DB_ERROR", e.to_string(), None)),
+                )
+            })?;
 
         if let Some(existing) = db.find_open_upload_by_manifest(&manifest_id).map_err(|e| {
             (
@@ -484,17 +486,47 @@ async fn put_chunk_handler(
     }
 
     if state.store.has_chunk(&chunk_id, expected_len) {
-        return Ok(StatusCode::OK);
+        let db = state.db.lock().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("LOCK_ERROR", "db lock error", None)),
+            )
+        })?;
+        if db.is_upload_open(&upload_id).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("DB_ERROR", e.to_string(), None)),
+            )
+        })? {
+            return Ok(StatusCode::OK);
+        }
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "UPLOAD_NOT_OPEN",
+                format!("upload {} is not in open state", upload_id),
+                None,
+            )),
+        ));
     }
 
     let store = state.store.clone();
     let body_vec = body.to_vec();
     let c_id = chunk_id.clone();
+    let db_arc = state.db.clone();
+    let u_id = upload_id.clone();
 
-    tokio::task::spawn_blocking(move || -> Result<(), CoreError> {
+    let accepted = tokio::task::spawn_blocking(move || -> Result<bool, CoreError> {
         let tmp_path = store.write_chunk_tmp(&c_id, &body_vec)?;
+        let db = db_arc
+            .lock()
+            .map_err(|_| std::io::Error::other("db lock error"))?;
+        if !db.is_upload_open(&u_id)? {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Ok(false);
+        }
         store.promote_tmp_chunk(&tmp_path, &c_id)?;
-        Ok(())
+        db.record_accepted_chunk(&u_id, &c_id, expected_len)
     })
     .await
     .map_err(|_| {
@@ -514,22 +546,16 @@ async fn put_chunk_handler(
         )
     })?;
 
-    {
-        let db = state.db.lock().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new("LOCK_ERROR", "db lock error", None)),
-            )
-        })?;
-        db.record_accepted_chunk(&upload_id, &chunk_id, expected_len)
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiError::new("DB_ERROR", e.to_string(), None)),
-                )
-            })?;
+    if !accepted {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "UPLOAD_NOT_OPEN",
+                format!("upload {} is not in open state", upload_id),
+                None,
+            )),
+        ));
     }
-
     Ok(StatusCode::CREATED)
 }
 

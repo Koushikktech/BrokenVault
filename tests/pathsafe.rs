@@ -1,6 +1,7 @@
 use brokenvault::core::errors::PathError;
 use brokenvault::core::pathsafe::{resolve_under_root, validate_path_set, validate_relative_path};
 use std::path::Path;
+use tempfile::tempdir;
 
 #[test]
 fn test_valid_relative_paths() {
@@ -102,4 +103,22 @@ fn test_resolve_under_root_success() {
 fn test_resolve_under_root_reject_escape() {
     let root = Path::new("/tmp/test_vault_restore");
     assert!(resolve_under_root(root, "../outside").is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn test_resolve_under_root_rejects_symlink_component_and_leaf() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = tempdir().unwrap();
+    let root = tmp.path().join("dest");
+    let outside = tmp.path().join("outside");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    symlink(&outside, root.join("link")).unwrap();
+    assert!(resolve_under_root(&root, "link/file").is_err());
+    assert!(resolve_under_root(&root, "link").is_err());
+    assert!(resolve_under_root(&root, "new/file").is_ok());
+    symlink(&outside, tmp.path().join("root_link")).unwrap();
+    assert!(resolve_under_root(&tmp.path().join("root_link"), "file").is_err());
 }

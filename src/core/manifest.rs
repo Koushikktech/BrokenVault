@@ -3,7 +3,14 @@ use crate::core::errors::{ManifestError, PathError};
 use crate::core::hash::sha256_hex;
 use crate::core::pathsafe::validate_relative_path;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+pub fn valid_chunk_id(id: &str) -> bool {
+    id.len() == 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
 
 pub const MANIFEST_FORMAT: &str = "brokenvault-manifest/1";
 
@@ -79,11 +86,16 @@ impl Manifest {
         if self.format != MANIFEST_FORMAT {
             return Err(ManifestError::InvalidFormat(self.format.clone()));
         }
-        if self.chunker.algo != CHUNKER_ALGO {
-            return Err(ManifestError::InvalidChunker(self.chunker.algo.clone()));
+        if self.chunker != ChunkerConfig::default() {
+            return Err(ManifestError::InvalidChunker(format!(
+                "unsupported chunker configuration: {:?}",
+                self.chunker
+            )));
         }
 
         let mut seen = HashSet::new();
+        let mut chunk_lengths = HashMap::new();
+        let mut total_bytes = 0u64;
         let mut dir_prefixes = HashSet::new();
         let mut previous_path: Option<&str> = None;
 
@@ -123,13 +135,36 @@ impl Manifest {
                 path, size, chunks, ..
             } = entry
             {
-                let chunk_sum: u64 = chunks.iter().map(|(_, len)| *len).sum();
+                let chunk_sum = chunks.iter().try_fold(0u64, |sum, (_, len)| {
+                    sum.checked_add(*len).ok_or_else(|| {
+                        ManifestError::InvalidFormat(format!(
+                            "chunk length sum overflows for {path}"
+                        ))
+                    })
+                })?;
                 if chunk_sum != *size {
                     return Err(ManifestError::ChunkSumMismatch {
                         path: path.clone(),
                         expected: *size,
                         actual: chunk_sum,
                     });
+                }
+                total_bytes = total_bytes.checked_add(*size).ok_or_else(|| {
+                    ManifestError::InvalidFormat("manifest total size overflows".to_string())
+                })?;
+                for (id, len) in chunks {
+                    if !valid_chunk_id(id) {
+                        return Err(ManifestError::InvalidFormat(format!(
+                            "invalid chunk id: {id}"
+                        )));
+                    }
+                    if let Some(previous) = chunk_lengths.insert(id.as_str(), *len) {
+                        if previous != *len {
+                            return Err(ManifestError::InvalidFormat(format!(
+                                "inconsistent lengths for chunk {id}: {previous} vs {len}"
+                            )));
+                        }
+                    }
                 }
             }
         }

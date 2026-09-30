@@ -1,7 +1,7 @@
 use crate::core::errors::CoreError;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UploadRow {
@@ -44,6 +44,42 @@ impl Database {
         let db = Self { conn };
         db.init_schema()?;
         Ok(db)
+    }
+
+    pub fn open_read_only(db_path: impl AsRef<Path>) -> Result<Self, CoreError> {
+        let path = db_path.as_ref().canonicalize()?;
+        let mut wal = path.as_os_str().to_os_string();
+        wal.push("-wal");
+        let mut shm = path.as_os_str().to_os_string();
+        shm.push("-shm");
+        let wal_present = PathBuf::from(wal).exists();
+        let shm_present = PathBuf::from(shm).exists();
+        if wal_present && !shm_present {
+            return Err(CoreError::Io(std::io::Error::other(
+                "cannot verify WAL database without existing shared-memory file in read-only mode",
+            )));
+        }
+        let conn = if wal_present {
+            Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?
+        } else {
+            let path = path.to_str().ok_or_else(|| {
+                CoreError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "database path is not UTF-8",
+                ))
+            })?;
+            let uri = format!(
+                "file:{}?immutable=1",
+                path.replace('%', "%25")
+                    .replace('?', "%3F")
+                    .replace('#', "%23")
+            );
+            Connection::open_with_flags(
+                uri,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+            )?
+        };
+        Ok(Self { conn })
     }
 
     fn init_schema(&self) -> Result<(), CoreError> {
@@ -146,9 +182,9 @@ impl Database {
         let row = self
             .conn
             .query_row(
-                "SELECT id, manifest_id, total_bytes, created_at, state, version_id 
-                 FROM uploads 
-                 WHERE manifest_id = ? AND state = 'open' 
+                "SELECT id, manifest_id, total_bytes, created_at, state, version_id
+                 FROM uploads
+                 WHERE manifest_id = ? AND state = 'open'
                  ORDER BY created_at DESC LIMIT 1",
                 params![manifest_id],
                 |r| {
@@ -197,7 +233,7 @@ impl Database {
         let row = self
             .conn
             .query_row(
-                "SELECT id, manifest_id, total_bytes, created_at, state, version_id 
+                "SELECT id, manifest_id, total_bytes, created_at, state, version_id
                  FROM uploads WHERE id = ?",
                 params![id],
                 |r| {
@@ -217,7 +253,7 @@ impl Database {
 
     pub fn list_open_uploads(&self) -> Result<Vec<UploadRow>, CoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, manifest_id, total_bytes, created_at, state, version_id 
+            "SELECT id, manifest_id, total_bytes, created_at, state, version_id
              FROM uploads WHERE state = 'open' ORDER BY created_at ASC",
         )?;
 
@@ -244,12 +280,24 @@ impl Database {
         upload_id: &str,
         chunk_id: &str,
         len: u64,
-    ) -> Result<(), CoreError> {
+    ) -> Result<bool, CoreError> {
         self.conn.execute(
-            "INSERT OR IGNORE INTO accepted (upload_id, chunk_id, len) VALUES (?, ?, ?)",
-            params![upload_id, chunk_id, len],
+            "INSERT OR IGNORE INTO accepted (upload_id, chunk_id, len)
+             SELECT ?, ?, ? WHERE EXISTS (
+                 SELECT 1 FROM uploads WHERE id = ? AND state = 'open'
+             )",
+            params![upload_id, chunk_id, len, upload_id],
         )?;
-        Ok(())
+        self.is_upload_open(upload_id)
+    }
+
+    pub fn is_upload_open(&self, upload_id: &str) -> Result<bool, CoreError> {
+        let open: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM uploads WHERE id = ? AND state = 'open')",
+            params![upload_id],
+            |r| r.get(0),
+        )?;
+        Ok(open)
     }
 
     pub fn get_uploaded_bytes(&self, upload_id: &str) -> Result<u64, CoreError> {

@@ -109,10 +109,9 @@ pub fn diff_directories(
         let path_a = dir_a.join(rel_path);
         let path_b = dir_b.join(rel_path);
 
+        let meta_a = fs::metadata(&path_a)?;
+        let meta_b = fs::metadata(&path_b)?;
         if !*is_dir_a {
-            let meta_a = fs::metadata(&path_a)?;
-            let meta_b = fs::metadata(&path_b)?;
-
             if meta_a.len() != meta_b.len() {
                 eprintln!(
                     "Length mismatch for {}: A={} B={}",
@@ -139,16 +138,19 @@ pub fn diff_directories(
                     break;
                 }
             }
-
-            let mtime_a = filetime::FileTime::from_last_modification_time(&meta_a).unix_seconds();
-            let mtime_b = filetime::FileTime::from_last_modification_time(&meta_b).unix_seconds();
-            if mtime_a.abs_diff(mtime_b) > 1 {
-                eprintln!(
-                    "Mtime mismatch for {}: A={} B={}",
-                    rel_path, mtime_a, mtime_b
-                );
-                return Ok(false);
-            }
+        }
+        let mtime_a = filetime::FileTime::from_last_modification_time(&meta_a);
+        let mtime_b = filetime::FileTime::from_last_modification_time(&meta_b);
+        let nanos_a =
+            i128::from(mtime_a.unix_seconds()) * 1_000_000_000 + i128::from(mtime_a.nanoseconds());
+        let nanos_b =
+            i128::from(mtime_b.unix_seconds()) * 1_000_000_000 + i128::from(mtime_b.nanoseconds());
+        if nanos_a.abs_diff(nanos_b) > 1_000_000_000 {
+            eprintln!(
+                "Mtime mismatch for {}: A={:?} B={:?}",
+                rel_path, mtime_a, mtime_b
+            );
+            return Ok(false);
         }
     }
 

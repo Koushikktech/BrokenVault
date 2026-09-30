@@ -91,9 +91,9 @@ async fn main() -> Result<()> {
                 .context("server error")?;
         }
         Commands::Verify { data, json } => {
-            let store = Store::new(&data).context("failed to open store")?;
+            let store = Store::open_read_only(&data).context("failed to open store")?;
             let db_path = data.join("meta.db");
-            let db = Database::open(&db_path).context("failed to open database")?;
+            let db = Database::open_read_only(&db_path).context("failed to open database")?;
             let report = execute_verification(&store, &db).context("verification failed")?;
 
             if json {

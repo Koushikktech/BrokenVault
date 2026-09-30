@@ -1,5 +1,7 @@
 use crate::core::errors::PathError;
 use std::collections::HashSet;
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
 pub fn validate_relative_path(path: &str) -> Result<(), PathError> {
@@ -74,9 +76,13 @@ pub fn resolve_under_root(root: &Path, rel_path: &str) -> Result<PathBuf, PathEr
     validate_relative_path(rel_path)?;
 
     let mut dest = PathBuf::from(root);
+    reject_symlink(&dest, rel_path)?;
     for component in Path::new(rel_path).components() {
         match component {
-            Component::Normal(segment) => dest.push(segment),
+            Component::Normal(segment) => {
+                dest.push(segment);
+                reject_symlink(&dest, rel_path)?;
+            }
             _ => return Err(PathError::TraversalComponent(rel_path.to_string())),
         }
     }
@@ -89,6 +95,17 @@ pub fn resolve_under_root(root: &Path, rel_path: &str) -> Result<PathBuf, PathEr
     }
 
     Ok(dest)
+}
+
+fn reject_symlink(path: &Path, rel_path: &str) -> Result<(), PathError> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            Err(PathError::DestinationEscape(rel_path.to_string()))
+        }
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(PathError::DestinationEscape(rel_path.to_string())),
+    }
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
