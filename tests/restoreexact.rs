@@ -36,16 +36,19 @@ impl TestServer {
             while !done.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        stream
-                            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-                            .unwrap();
-                        let mut reader = BufReader::new(stream.try_clone().unwrap());
+                        let _ = stream.set_nonblocking(false);
+                        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                        let Ok(cloned) = stream.try_clone() else {
+                            continue;
+                        };
+                        let mut reader = BufReader::new(cloned);
                         let mut request = String::new();
-                        reader.read_line(&mut request).unwrap();
+                        if reader.read_line(&mut request).is_err() {
+                            continue;
+                        }
                         loop {
                             let mut line = String::new();
-                            reader.read_line(&mut line).unwrap();
-                            if line == "\r\n" || line.is_empty() {
+                            if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
                                 break;
                             }
                         }
@@ -61,18 +64,20 @@ impl TestServer {
                         } else {
                             ("404 Not Found", &[][..])
                         };
-                        write!(
+                        if write!(
                             stream,
                             "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                             body.len()
                         )
-                        .unwrap();
-                        stream.write_all(body).unwrap();
+                        .is_ok()
+                        {
+                            let _ = stream.write_all(body);
+                        }
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(std::time::Duration::from_millis(5));
                     }
-                    Err(e) => panic!("test server failed: {e}"),
+                    Err(_) => break,
                 }
             }
         });
@@ -87,7 +92,9 @@ impl TestServer {
 impl Drop for TestServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        self.worker.take().unwrap().join().unwrap();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 
