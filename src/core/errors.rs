@@ -19,6 +19,9 @@ pub enum CoreError {
 
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("operation interrupted")]
+    Interrupted,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
