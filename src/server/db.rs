@@ -487,4 +487,25 @@ impl Database {
         }
         Ok(result)
     }
+
+    pub fn stats(&self) -> Result<(usize, usize, u64), CoreError> {
+        let completed_versions: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM versions", [], |r| r.get(0))?;
+        let open_uploads: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM uploads WHERE state = 'open'",
+            [],
+            |r| r.get(0),
+        )?;
+        let total_logical_bytes: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(total_bytes), 0) FROM versions",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok((
+            completed_versions as usize,
+            open_uploads as usize,
+            total_logical_bytes as u64,
+        ))
+    }
 }

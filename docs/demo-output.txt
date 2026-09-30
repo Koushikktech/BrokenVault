@@ -1,0 +1,71 @@
+    Finished `release` profile [optimized] target(s) in 0.10s
+BrokenVault interruption / continuation proof (/private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF)
+Generated dataset at /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/sample_v1 (seed=101, mutate=false)
+list: versions=none open=none
+[1] Pause V1 after three accepted chunks (controlled interruption, exit 130).
+Upload upl_5c6fadcebed1595d (new) — server already has 0 / 57 chunks
+⏸ PAUSED   upload=upl_5c6fadcebed1595d  state=UNFINISHED (hidden from `bv list`)
+   Server holds 3 / 57 chunks. Re-run the same command to continue.
+list: versions=none open=upl_5c6fadcebed1595d
+list: versions=none open=upl_5c6fadcebed1595d
+Upload upl_5c6fadcebed1595d (resumed) — server already has 3 / 57 chunks
+✔ COMPLETED   version=v1
+   total 4.2 MiB │ uploaded 4.2 MiB (100.00%) │ reused 0 B (0.00%)
+list: versions=v1 open=none
+v1: upload=upl_5c6fadcebed1595d uploaded=4358235 reused=0 total=4358235
+Generated dataset at /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/sample_v2 (seed=101, mutate=true)
+Upload upl_417f132da73a2a4c (new) — server already has 55 / 58 chunks
+✔ COMPLETED   version=v2
+   total 4.2 MiB │ uploaded 144.7 KiB (3.40%) │ reused 4.0 MiB (96.60%)
+list: versions=v1,v2 open=none
+v2 dedup: uploaded=148171 reused=4210124
+[2] Pause distinct V3, restart daemon, then resume the same upload.
+Upload upl_61bfaf47e049b401 (new) — server already has 58 / 108 chunks
+⏸ PAUSED   upload=upl_61bfaf47e049b401  state=UNFINISHED (hidden from `bv list`)
+   Server holds 59 / 108 chunks. Re-run the same command to continue.
+list: versions=v1,v2 open=upl_61bfaf47e049b401
+list: versions=v1,v2 open=upl_61bfaf47e049b401
+Upload upl_61bfaf47e049b401 (resumed) — server already has 59 / 108 chunks
+✔ COMPLETED   version=v3
+   total 8.2 MiB │ uploaded 4.0 MiB (49.04%) │ reused 4.2 MiB (50.96%)
+list: versions=v1,v2,v3 open=none
+v3: upload=upl_61bfaf47e049b401 uploaded=4194343 reused=4358295 total=8552638
+✔ Restore completed successfully into /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_v1
+✔ EXACT MATCH: /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/sample_v1 and /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_v1 are identical
+✔ Restore completed successfully into /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_v2
+✔ EXACT MATCH: /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/sample_v2 and /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_v2 are identical
+✔ Restore completed successfully into /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_v3
+✔ EXACT MATCH: /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/sample_v3 and /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_v3 are identical
+[3] Flip a stored chunk, verify exact reported impact and read-only behavior.
+Damaged chunk 95bf2143f8d118f3fb2d322526e60ac114ea13017be0ac1940da7b8f2abce6d5 using mode Flip
+{
+  "healthy": false,
+  "damaged_chunks": [
+    {
+      "chunk_id": "95bf2143f8d118f3fb2d322526e60ac114ea13017be0ac1940da7b8f2abce6d5",
+      "damage_type": "HashMismatch",
+      "expected_len": 150785,
+      "actual_len": 150785,
+      "affected": [
+        {
+          "version_id": "v3",
+          "path": "v3_unique.bin",
+          "chunk_index": 21,
+          "start_byte": 1568923,
+          "end_byte": 1719707
+        }
+      ]
+    }
+  ],
+  "healthy_versions": [
+    "v1",
+    "v2"
+  ],
+  "info_messages": []
+}
+Error: restore failed
+
+Caused by:
+    0: io error: restore version v3 into /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_damaged: io error: chunk 95bf2143f8d118f3fb2d322526e60ac114ea13017be0ac1940da7b8f2abce6d5 /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_damaged/v3_unique.bin: download status 500 Internal Server Error
+    1: restore version v3 into /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_damaged: io error: chunk 95bf2143f8d118f3fb2d322526e60ac114ea13017be0ac1940da7b8f2abce6d5 /private/var/folders/zc/n6n55mmj0r3fz3nq08m_q15w0000gn/T/zed-agent-terminal-LbihLU/brokenvault_demo_Tz9HvF/restore_damaged/v3_unique.bin: download status 500 Internal Server Error
+PASS: unfinished uploads hidden; same IDs resumed; V1/V2/V3 exact; damaged v3 restore rejected; verify read-only.

@@ -67,6 +67,7 @@ fn test_resume_idempotent_and_hidden_unfinished() {
         UploadOptions {
             jobs: 1,
             stop_after_chunks: Some(2),
+            ..Default::default()
         },
     );
     match stopped {

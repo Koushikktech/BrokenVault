@@ -13,11 +13,15 @@ use std::os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt};
 
 pub struct RestoreOptions {
     pub jobs: usize,
+    pub subpath: Option<String>,
 }
 
 impl Default for RestoreOptions {
     fn default() -> Self {
-        Self { jobs: 8 }
+        Self {
+            jobs: 8,
+            subpath: None,
+        }
     }
 }
 
@@ -216,6 +220,34 @@ pub fn run_restore(
             CoreError::Io(io::Error::other(format!("failed to read manifest: {}", e)))
         })?;
         let manifest = Manifest::from_bytes(&manifest_bytes)?;
+        let manifest = if let Some(sub) = &options.subpath {
+            let normalized_sub = sub.trim_matches('/').replace('\\', "/");
+            crate::core::pathsafe::validate_relative_path(&normalized_sub)?;
+            let filtered_entries: Vec<ManifestEntry> = manifest
+                .entries
+                .into_iter()
+                .filter(|entry| {
+                    let p = entry.path();
+                    p == normalized_sub || p.starts_with(&format!("{}/", normalized_sub))
+                })
+                .collect();
+            if filtered_entries.is_empty() {
+                return Err(CoreError::Io(io::Error::new(
+                    ErrorKind::NotFound,
+                    format!(
+                        "subpath '{}' not found in version {}",
+                        normalized_sub, version_id
+                    ),
+                )));
+            }
+            Manifest {
+                format: manifest.format,
+                chunker: manifest.chunker,
+                entries: filtered_entries,
+            }
+        } else {
+            manifest
+        };
         execute_restore_plan(&manifest, &dest, server_url, &options, &client, &mut owned)?;
         println!("✔ Restore completed successfully into {}", dest.display());
         Ok(())
@@ -311,6 +343,20 @@ fn execute_restore_plan(
         }
     }
 
+    let pb = if std::io::IsTerminal::is_terminal(&std::io::stderr()) && planned_chunks.len() > 1 {
+        let bar = indicatif::ProgressBar::new(planned_chunks.len() as u64);
+        bar.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template(
+                    "{spinner:.green} Restoring chunks [{bar:30.cyan/blue}] {pos}/{len} ({eta})",
+                )
+                .unwrap_or_else(|_| indicatif::ProgressStyle::default_bar()),
+        );
+        Some(bar)
+    } else {
+        None
+    };
+
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(options.jobs)
         .build()
@@ -362,9 +408,16 @@ fn execute_restore_plan(
                 item.file
                     .write_all_at(&data, item.offset)
                     .map_err(|e| chunk_context(&format!("write failed: {}", e)))?;
+                if let Some(b) = &pb {
+                    b.inc(1);
+                }
                 Ok(())
             })
     })?;
+
+    if let Some(b) = &pb {
+        b.finish_and_clear();
+    }
 
     for (path, file, (secs, nsecs)) in file_mtimes {
         if !owned.still_under_root(&path)

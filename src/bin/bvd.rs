@@ -33,6 +33,23 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    Stats {
+        #[arg(long, default_value = "./vault")]
+        data: PathBuf,
+
+        #[arg(long)]
+        json: bool,
+    },
+    Diff {
+        v1: String,
+        v2: String,
+
+        #[arg(long, default_value = "./vault")]
+        data: PathBuf,
+
+        #[arg(long)]
+        json: bool,
+    },
     Debug {
         #[command(subcommand)]
         sub: DebugCommands,
@@ -104,6 +121,42 @@ async fn main() -> Result<()> {
 
             if !report.healthy {
                 std::process::exit(1);
+            }
+        }
+        Commands::Stats { data, json } => {
+            let store = Store::open_read_only(&data).context("failed to open store")?;
+            let db_path = data.join("meta.db");
+            let db = Database::open_read_only(&db_path).context("failed to open database")?;
+            let stats = brokenvault::server::compute_vault_stats(&store, &db)
+                .context("failed to compute vault stats")?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&stats)?);
+            } else {
+                brokenvault::client::ui::print_vault_stats(&stats);
+            }
+        }
+        Commands::Diff { v1, v2, data, json } => {
+            let db_path = data.join("meta.db");
+            let db = Database::open_read_only(&db_path).context("failed to open database")?;
+            let bytes1 = db
+                .get_version_manifest(&v1)
+                .context("failed to query database for v1")?
+                .ok_or_else(|| anyhow::anyhow!("version {} not found in vault", v1))?;
+            let m1 = brokenvault::core::manifest::Manifest::from_bytes(&bytes1)
+                .context("invalid v1 manifest")?;
+
+            let bytes2 = db
+                .get_version_manifest(&v2)
+                .context("failed to query database for v2")?
+                .ok_or_else(|| anyhow::anyhow!("version {} not found in vault", v2))?;
+            let m2 = brokenvault::core::manifest::Manifest::from_bytes(&bytes2)
+                .context("invalid v2 manifest")?;
+
+            let report = brokenvault::core::diff::compare_manifests(&v1, &m1, &v2, &m2);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                brokenvault::client::ui::print_version_diff(&report);
             }
         }
         Commands::Debug { sub } => match sub {

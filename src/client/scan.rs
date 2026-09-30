@@ -29,12 +29,30 @@ pub fn scan_directory(
     let mut entries = Vec::new();
     let mut chunk_details = Vec::new();
 
-    for walk_res in WalkDir::new(root).sort_by_file_name() {
+    let mut it = WalkDir::new(root).sort_by_file_name().into_iter();
+    while let Some(walk_res) = it.next() {
         let entry = walk_res.map_err(std::io::Error::other)?;
         let path = entry.path();
 
         if path == root {
             continue;
+        }
+
+        if entry.file_type().is_dir() && path.join(".brokenvault_vault").exists() {
+            eprintln!("Warning: skipping vault directory {}", path.display());
+            it.skip_current_dir();
+            continue;
+        }
+
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name == "journal.json" || name == ".bv_journal.json" || name == ".brokenvault_vault"
+            {
+                eprintln!(
+                    "Warning: skipping internal metadata file {}",
+                    path.display()
+                );
+                continue;
+            }
         }
 
         let file_type = entry.file_type();

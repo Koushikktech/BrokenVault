@@ -1,6 +1,6 @@
 use crate::client::journal::{Journal, JournalEntry, make_journal_key};
 use crate::client::scan::{LocalChunkDetail, scan_directory};
-use crate::client::ui::{print_completed_summary, print_paused_summary};
+use crate::client::ui::{print_completed_summary, print_paused_summary, print_unchanged_summary};
 use crate::core::errors::CoreError;
 use crate::core::proto::{
     CommitConflictResponse, CommitResponse, UploadInitResponse, UploadStatusResponse,
@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 pub struct UploadOptions {
     pub jobs: usize,
     pub stop_after_chunks: Option<usize>,
+    pub snapshot: bool,
 }
 
 impl Default for UploadOptions {
@@ -23,6 +24,7 @@ impl Default for UploadOptions {
         Self {
             jobs: 8,
             stop_after_chunks: None,
+            snapshot: false,
         }
     }
 }
@@ -45,20 +47,38 @@ pub fn run_backup(
     let mut journal = Journal::load_from_disk();
     let journal_key = make_journal_key(server_url, &manifest_id);
 
-    if let Some(entry) = journal.get(&journal_key) {
-        let status_url = format!("{}/v1/uploads/{}", server_url, entry.upload_id);
-        if let Ok(mut res) = client.get(&status_url).call() {
-            if res.status().as_u16() == 200 {
-                if let Ok(status_dto) = res.body_mut().read_json::<UploadStatusResponse>() {
-                    if status_dto.state == "committed" {
-                        if let Some(version) = status_dto.version_id {
-                            print_completed_summary(
-                                &version,
-                                manifest.total_bytes(),
-                                0,
-                                manifest.total_bytes(),
-                            );
-                            return Ok(None);
+    if !options.snapshot {
+        if let Some(entry) = journal.get(&journal_key).cloned() {
+            let status_url = format!("{}/v1/uploads/{}", server_url, entry.upload_id);
+            if let Ok(mut res) = client.get(&status_url).call() {
+                if res.status().as_u16() == 200 {
+                    if let Ok(status_dto) = res.body_mut().read_json::<UploadStatusResponse>() {
+                        if status_dto.state == "committed" {
+                            if let Some(version) = status_dto.version_id {
+                                journal.insert(
+                                    journal_key.clone(),
+                                    JournalEntry {
+                                        upload_id: entry.upload_id.clone(),
+                                        server_url: server_url.to_string(),
+                                        manifest_id: manifest_id.clone(),
+                                        created_at: entry.created_at,
+                                        committed: true,
+                                        version_id: Some(version.clone()),
+                                    },
+                                );
+                                let _ = journal.save_to_disk();
+                                if !entry.committed {
+                                    print_completed_summary(
+                                        &version,
+                                        manifest.total_bytes(),
+                                        0,
+                                        manifest.total_bytes(),
+                                    );
+                                } else {
+                                    print_unchanged_summary(&version, manifest.total_bytes());
+                                }
+                                return Ok(None);
+                            }
                         }
                     }
                 }
@@ -128,6 +148,19 @@ pub fn run_backup(
     let uploaded_count = Arc::new(AtomicUsize::new(0));
 
     let upload_chunks = |chunks_to_send: &[String]| -> Result<(), CoreError> {
+        let pb = if std::io::IsTerminal::is_terminal(&std::io::stderr()) && chunks_to_send.len() > 1
+        {
+            let bar = indicatif::ProgressBar::new(chunks_to_send.len() as u64);
+            bar.set_style(
+                indicatif::ProgressStyle::default_bar()
+                    .template("{spinner:.green} Sending chunks   [{bar:30.cyan/blue}] {pos}/{len} ({eta})")
+                    .unwrap_or_else(|_| indicatif::ProgressStyle::default_bar()),
+            );
+            Some(bar)
+        } else {
+            None
+        };
+
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(options.jobs)
             .build()
@@ -185,9 +218,16 @@ pub fn run_backup(
                     }
 
                     uploaded_count.fetch_add(1, Ordering::SeqCst);
+                    if let Some(b) = &pb {
+                        b.inc(1);
+                    }
                     Ok(())
                 })
         })?;
+
+        if let Some(b) = &pb {
+            b.finish_and_clear();
+        }
 
         Ok(())
     };

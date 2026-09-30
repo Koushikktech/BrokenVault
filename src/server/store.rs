@@ -22,6 +22,7 @@ impl Store {
         fs::create_dir_all(&quarantine_dir)?;
 
         Self::clean_tmp_directory(&tmp_dir)?;
+        fs::write(vault_dir.join(".brokenvault_vault"), b"brokenvault")?;
 
         Ok(Self { vault_dir })
     }
@@ -181,6 +182,29 @@ impl Store {
 
     pub fn vault_dir(&self) -> &Path {
         &self.vault_dir
+    }
+
+    pub fn storage_stats(&self) -> Result<(usize, u64), CoreError> {
+        let chunks_dir = self.vault_dir.join("chunks");
+        if !chunks_dir.exists() {
+            return Ok((0, 0));
+        }
+        let mut count = 0usize;
+        let mut bytes = 0u64;
+        for prefix_entry in fs::read_dir(chunks_dir)? {
+            let prefix_entry = prefix_entry?;
+            if prefix_entry.path().is_dir() {
+                for chunk_entry in fs::read_dir(prefix_entry.path())? {
+                    let chunk_entry = chunk_entry?;
+                    let meta = chunk_entry.metadata()?;
+                    if meta.is_file() {
+                        count = count.saturating_add(1);
+                        bytes = bytes.saturating_add(meta.len());
+                    }
+                }
+            }
+        }
+        Ok((count, bytes))
     }
 }
 

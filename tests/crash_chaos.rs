@@ -76,6 +76,7 @@ fn test_seeded_crash_chaos_recovery() {
         UploadOptions {
             jobs: 1,
             stop_after_chunks: Some(3),
+            ..Default::default()
         },
     );
 

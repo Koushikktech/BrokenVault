@@ -27,6 +27,9 @@ enum Commands {
 
         #[arg(long)]
         stop_after_chunks: Option<usize>,
+
+        #[arg(long)]
+        snapshot: bool,
     },
     List {
         #[arg(long)]
@@ -41,6 +44,20 @@ enum Commands {
 
         #[arg(long, default_value_t = 8)]
         jobs: usize,
+
+        #[arg(long)]
+        path: Option<String>,
+    },
+    Diff {
+        v1: String,
+        v2: String,
+
+        #[arg(long)]
+        json: bool,
+    },
+    Stats {
+        #[arg(long)]
+        json: bool,
     },
     Verify {
         #[arg(long)]
@@ -81,10 +98,12 @@ fn main() -> Result<()> {
             src,
             jobs,
             stop_after_chunks,
+            snapshot,
         } => {
             let options = UploadOptions {
                 jobs,
                 stop_after_chunks,
+                snapshot,
             };
             if let Err(e) = run_backup(&src, server_url, options) {
                 if matches!(e, brokenvault::core::errors::CoreError::Interrupted) {
@@ -164,9 +183,94 @@ fn main() -> Result<()> {
             version,
             dest,
             jobs,
+            path,
         } => {
-            let options = RestoreOptions { jobs };
+            let options = RestoreOptions {
+                jobs,
+                subpath: path,
+            };
             run_restore(&version, &dest, server_url, options).context("restore failed")?;
+        }
+        Commands::Diff { v1, v2, json } => {
+            let client = ureq::Agent::config_builder()
+                .http_status_as_error(false)
+                .build()
+                .new_agent();
+
+            let m1_url = format!("{}/v1/versions/{}/manifest", server_url, v1);
+            let mut res1 = client
+                .get(&m1_url)
+                .call()
+                .context("failed to query server for v1 manifest")?;
+            if res1.status().as_u16() != 200 {
+                eprintln!(
+                    "Failed to fetch manifest for {}: HTTP {}",
+                    v1,
+                    res1.status()
+                );
+                std::process::exit(2);
+            }
+            let bytes1 = res1
+                .body_mut()
+                .read_to_vec()
+                .context("failed to read v1 manifest")?;
+            let m1 = brokenvault::core::manifest::Manifest::from_bytes(&bytes1)
+                .context("invalid v1 manifest")?;
+
+            let m2_url = format!("{}/v1/versions/{}/manifest", server_url, v2);
+            let mut res2 = client
+                .get(&m2_url)
+                .call()
+                .context("failed to query server for v2 manifest")?;
+            if res2.status().as_u16() != 200 {
+                eprintln!(
+                    "Failed to fetch manifest for {}: HTTP {}",
+                    v2,
+                    res2.status()
+                );
+                std::process::exit(2);
+            }
+            let bytes2 = res2
+                .body_mut()
+                .read_to_vec()
+                .context("failed to read v2 manifest")?;
+            let m2 = brokenvault::core::manifest::Manifest::from_bytes(&bytes2)
+                .context("invalid v2 manifest")?;
+
+            let report = brokenvault::core::diff::compare_manifests(&v1, &m1, &v2, &m2);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                brokenvault::client::ui::print_version_diff(&report);
+            }
+        }
+        Commands::Stats { json } => {
+            let client = ureq::Agent::config_builder()
+                .http_status_as_error(false)
+                .build()
+                .new_agent();
+
+            let stats_url = format!("{}/v1/stats", server_url);
+            let mut res = client
+                .get(&stats_url)
+                .call()
+                .context("failed to reach server for stats")?;
+
+            if res.status().as_u16() != 200 {
+                eprintln!("Failed to query stats: HTTP {}", res.status());
+                std::process::exit(3);
+            }
+
+            let stats: brokenvault::core::proto::VaultStats = res
+                .body_mut()
+                .read_json()
+                .context("failed to parse stats response")?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&stats)?);
+            } else {
+                brokenvault::client::ui::print_vault_stats(&stats);
+            }
         }
         Commands::Verify { json } => {
             let client = ureq::Agent::config_builder()

@@ -1,0 +1,34 @@
+services:
+  server:
+    build: .
+    ports:
+      - "127.0.0.1:7878:7878"
+    volumes:
+      - vault-data:/vault
+    command: ["serve", "--data", "/vault", "--listen", "0.0.0.0:7878"]
+
+  client:
+    profiles: ["tools"]
+    build: .
+    entrypoint: ["bv"]
+    environment:
+      - BV_SERVER=http://server:7878
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    depends_on:
+      - server
+
+  test:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: tester
+
+  demo:
+    profiles: ["tools"]
+    build: .
+    entrypoint: ["/app/scripts/demo.sh"]
+
+volumes:
+  vault-data:

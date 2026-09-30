@@ -1,5 +1,8 @@
 /target
 vault*
+*vault*
+my_vault
+my_vault/
 *.db
 *.db-wal
 *.db-shm
@@ -11,3 +14,7 @@ restore_*
 .agents/
 skills-lock.json
 BrokenVault_Winning_Playbook.md
+/hackathon/
+hackathon/
+hackathon
+readmetemp.md

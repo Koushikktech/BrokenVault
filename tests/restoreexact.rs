@@ -99,7 +99,15 @@ impl Drop for TestServer {
 }
 
 fn run(dest: &Path, url: &str) -> Result<(), brokenvault::core::errors::CoreError> {
-    run_restore("v7", dest, url, RestoreOptions { jobs: 1 })
+    run_restore(
+        "v7",
+        dest,
+        url,
+        RestoreOptions {
+            jobs: 1,
+            ..Default::default()
+        },
+    )
 }
 
 #[test]

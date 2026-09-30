@@ -44,6 +44,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/v1/chunks/{chunk_id}", get(get_chunk_handler))
         .route("/v1/verify", post(verify_handler))
+        .route("/v1/stats", get(stats_handler))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(state)
 }
@@ -806,4 +807,40 @@ async fn verify_handler(
     })?;
 
     Ok(Json(report))
+}
+
+async fn stats_handler(
+    State(state): State<AppState>,
+) -> Result<Json<crate::core::proto::VaultStats>, (StatusCode, Json<ApiError>)> {
+    let store = state.store.clone();
+    let db_arc = state.db.clone();
+
+    let stats = tokio::task::spawn_blocking(
+        move || -> Result<crate::core::proto::VaultStats, CoreError> {
+            let db = match db_arc.lock() {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
+            };
+            crate::server::compute_vault_stats(&store, &db)
+        },
+    )
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError::new(
+                "ASYNC_ERROR",
+                "blocking task join error",
+                None,
+            )),
+        )
+    })?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError::new("STATS_ERROR", e.to_string(), None)),
+        )
+    })?;
+
+    Ok(Json(stats))
 }
