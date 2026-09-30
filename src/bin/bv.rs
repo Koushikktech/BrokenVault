@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use brokenvault::client::devtools::{diff_directories, generate_sample_dataset};
+use brokenvault::client::restore::{RestoreOptions, run_restore};
 use brokenvault::client::upload::{UploadOptions, run_backup};
-use brokenvault::core::proto::{OpenUploadSummary, VersionSummary};
+use brokenvault::core::proto::{OpenUploadSummary, VerifyReport, VersionSummary};
+use brokenvault::server::verify::print_verify_report;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -30,6 +32,17 @@ enum Commands {
         #[arg(long)]
         all: bool,
 
+        #[arg(long)]
+        json: bool,
+    },
+    Restore {
+        version: String,
+        dest: PathBuf,
+
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+    },
+    Verify {
         #[arg(long)]
         json: bool,
     },
@@ -145,6 +158,46 @@ fn main() -> Result<()> {
                         );
                     }
                 }
+            }
+        }
+        Commands::Restore {
+            version,
+            dest,
+            jobs,
+        } => {
+            let options = RestoreOptions { jobs };
+            run_restore(&version, &dest, server_url, options).context("restore failed")?;
+        }
+        Commands::Verify { json } => {
+            let client = ureq::Agent::config_builder()
+                .http_status_as_error(false)
+                .build()
+                .new_agent();
+
+            let verify_url = format!("{}/v1/verify", server_url);
+            let mut res = client
+                .post(&verify_url)
+                .send(&[])
+                .context("failed to reach server for verification")?;
+
+            if res.status().as_u16() != 200 {
+                eprintln!("Verification request failed: HTTP {}", res.status());
+                std::process::exit(3);
+            }
+
+            let report: VerifyReport = res
+                .body_mut()
+                .read_json()
+                .context("failed to parse verify report")?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print_verify_report(&report);
+            }
+
+            if !report.healthy {
+                std::process::exit(1);
             }
         }
         Commands::Abort { upload_id } => {
