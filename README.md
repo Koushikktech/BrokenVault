@@ -165,5 +165,5 @@ The one-command version is `docker compose run --rm demo` (native: `./scripts/de
 ## External and AI-assisted work
 
 - Libraries: `axum` 0.8 and `tokio` (HTTP server), `fastcdc` 3.x (chunking), `rusqlite` 0.40 with bundled SQLite (metadata), `sha2` (SHA-256), `rayon` (parallelism), `ureq` 3 (HTTP client), `walkdir` and `filetime` (scanning, mtimes), `clap` (CLI), `serde` / `serde_json` (manifests), `ctrlc` (clean pause). No external services.
-- AI tools used: Antigravity (Gemini) for scaffolding protocol structs and error types, property tests, and the Dockerfile and demo script; Claude for design planning and README/documentation review.
+- AI tools used: Google Antigravity (Gemini) for scaffolding protocol structs and error types, property tests, and the Dockerfile and demo script; Claude for design planning and README/documentation review.
 - The team ran and reviewed everything. The tests and the demo scorecard are the evidence for the claims above.
